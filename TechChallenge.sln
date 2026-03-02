@@ -22,6 +22,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechChallenge.Common", "sha
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechChallenge.ChaosMonkey", "shared\src\TechChallenge.ChaosMonkey\TechChallenge.ChaosMonkey.csproj", "{DA455C0E-3487-4A62-9B17-1AE491E4A79E}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "calculator-api", "calculator-api", "{F1234567-89AB-CDEF-0123-456789ABCDEF}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{A2345678-9ABC-DEF0-1234-567890ABCDEF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechChallenge.Calculator.Api", "calculator-api\src\TechChallenge.Calculator.Api\TechChallenge.Calculator.Api.csproj", "{B3456789-ABCD-EF01-2345-678901ABCDEF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -36,6 +42,8 @@ Global
 		{2D80C218-6AF4-4454-83D4-198DE484F403} = {19193D5E-2092-4D1A-AD86-DA554DD604CB}
 		{17E04EB7-4F1B-4C55-AEC2-6D3C9CBEBACB} = {2DE97E86-BE71-4399-AEB7-8FD7A57D7D7F}
 		{DA455C0E-3487-4A62-9B17-1AE491E4A79E} = {2DE97E86-BE71-4399-AEB7-8FD7A57D7D7F}
+		{A2345678-9ABC-DEF0-1234-567890ABCDEF} = {F1234567-89AB-CDEF-0123-456789ABCDEF}
+		{B3456789-ABCD-EF01-2345-678901ABCDEF} = {A2345678-9ABC-DEF0-1234-567890ABCDEF}
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{CB3723F6-6A2F-4FEF-97C4-92219E4B5C05}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -58,5 +66,9 @@ Global
 		{DA455C0E-3487-4A62-9B17-1AE491E4A79E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DA455C0E-3487-4A62-9B17-1AE491E4A79E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DA455C0E-3487-4A62-9B17-1AE491E4A79E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B3456789-ABCD-EF01-2345-678901ABCDEF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B3456789-ABCD-EF01-2345-678901ABCDEF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B3456789-ABCD-EF01-2345-678901ABCDEF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B3456789-ABCD-EF01-2345-678901ABCDEF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
