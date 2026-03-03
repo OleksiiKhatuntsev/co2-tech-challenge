@@ -184,7 +184,9 @@ public record EmissionResponseDto(long Timestamp, double KgPerWattHr);
 - Resilience: configured externally in Program.cs (Polly v8 pipeline)
 
 Polly v8 Resilience Pipeline (configured in Program.cs):
-- Retry: 3 attempts, exponential backoff (1s → 2s → 4s), on HTTP 5xx
+- Retry: 3 retries (4 total attempts), exponential backoff (1s → 2s → 4s), on HTTP 5xx
+  - Why 3 retries: P(all fail) = 0.3⁴ = 0.81%, P(success) = 99.19%. Worst case latency = 7s (1+2+4).
+    Going to 4 retries gains only 0.57% success but worst case jumps to 23s (1+2+4+8+8 with jitter cap) — not worth it.
 - Circuit Breaker: break after 5 consecutive failures, 30s recovery
 
 ### 4.3 EmissionsClient
@@ -201,8 +203,11 @@ Polly v8 Resilience Pipeline (configured in Program.cs):
   - TTL: 24 hours (historical data never changes)
 
 Polly v8 Resilience Pipeline (configured in Program.cs):
-- Timeout: 5s per attempt
-- Retry: 3 attempts after timeout
+- **5 fast attempts**: 1s timeout each — cancel and retry if chaos delay hits. Why 1s: normal response is ~200ms, chaos is 15s, nothing in between. 1s = 5× normal response time — safe margin for unexpected API slowdowns (GC pauses, network jitter) while not wasting time when chaos clearly hit.
+- **6th attempt: no timeout** (or 30s safety net) — wait for guaranteed response
+- Emissions chaos is a delay, not an error — data always arrives. Total failure (502) is unacceptable → 6th attempt guarantees success.
+- Fast path: 96.88% of requests complete within ≤5s (P(fail in 5s) = 1/32). Worst case: 5×1s + 15s = 20s (P = 3.12%). E[latency] = 1.4s.
+- **No Circuit Breaker** — conscious decision: cache is the primary defense. After the first successful fetch, all subsequent requests for the same time range are served from cache, bypassing HTTP entirely.
 
 ---
 
@@ -220,8 +225,17 @@ DI registration:
 4. `builder.Services.AddScoped<ICalculatorService, CalculatorService>()`
 5. `app.UseMiddleware<ExceptionHandlingMiddleware>()`
 6. `app.MapGet("/calculate/{userId}", handler)`
+7. `app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))` — liveness probe
 
-### 5.2 Exception Handling Middleware
+### 5.2 Health Check Endpoint
+
+`GET /health` → `{ "status": "healthy" }` (200 OK)
+
+This is a **liveness probe** — confirms the Calculator process is alive and can serve HTTP. No upstream checks — that's a readiness probe concern (relevant in Kubernetes, not in our docker-compose setup).
+
+Used by docker-compose `healthcheck` to gate `depends_on: condition: service_healthy` if needed. Lightweight, no dependencies, always returns 200.
+
+### 5.3 Exception Handling Middleware
 
 File: `TechChallenge.Calculator.Api/Middleware/ExceptionHandlingMiddleware.cs`
 
@@ -278,7 +292,7 @@ Unit tests for **every public method** across all layers. Dependencies mocked vi
 
 ### Add to `Directory.Packages.props`:
 - `NSubstitute`
-- `Microsoft.NET.Test.Sdk`
+- `Microsoft.NET.Test.Sdk` — **not a library choice, but a mandatory infrastructure dependency**. This is the test host that `dotnet test` uses to discover and execute tests. Without it, xUnit tests compile but silently produce 0 results when run. Every .NET test project needs this regardless of framework (xUnit, NUnit, MSTest).
 - `FluentAssertions` (optional, for readable assertions)
 
 ---
@@ -296,7 +310,8 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 1. **Happy path** — both APIs respond normally → returns correct CO₂ value
 2. **Measurements chaos** — mock returns 500 on first 2 calls, 200 on 3rd → retry succeeds, correct result
 3. **Emissions cache hit** — two sequential requests with same time range → second doesn't hit WireMock emissions
-4. **Emissions timeout** — mock delays 15s → timeout triggers retry → eventually succeeds
+4. **Emissions timeout** — mock delays beyond timeout → retry → eventually succeeds
+   - Use reduced timeouts in test config (timeout: 1s, delay: 3s) to keep test fast (~3-4s instead of 15-20s). Same behavior verified, just faster.
 5. **Invalid parameters** — missing `from`/`to` → 400
 6. **Empty data** — no measurements in range → returns 0
 7. **Upstream down** — all retries fail → 502 Bad Gateway
