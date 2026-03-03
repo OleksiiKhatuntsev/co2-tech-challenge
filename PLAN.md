@@ -12,8 +12,12 @@ Build a Calculator API (.NET 8, Minimal API) that sits between a client and two 
 
 ```
 calculator-api/src/
-├── TechChallenge.Calculator.Domain/            ← domain models (no dependencies)
-│   └── Models.cs
+├── TechChallenge.Calculator.Domain/            ← domain models + exceptions (no dependencies)
+│   ├── Models.cs
+│   └── Exceptions/
+│       ├── CalculatorDomainException.cs         ← base exception
+│       ├── UpstreamUnavailableException.cs      ← upstream failed after retries
+│       └── InvalidCalculationRequestException.cs ← validation errors
 ├── TechChallenge.Calculator.Application/       ← business logic + interfaces
 │   ├── ICalculatorService.cs
 │   ├── CalculatorService.cs
@@ -26,7 +30,9 @@ calculator-api/src/
 │       ├── MeasurementResponseDto.cs
 │       └── EmissionResponseDto.cs
 └── TechChallenge.Calculator.Api/               ← composition root (already exists)
-    └── Program.cs
+    ├── Program.cs
+    └── Middleware/
+        └── ExceptionHandlingMiddleware.cs       ← global exception → HTTP status mapping
 ```
 
 **Dependency graph** (enforced by ProjectReference):
@@ -68,7 +74,9 @@ Interfaces in Application, implementations in Infrastructure — Dependency Inve
 
 ---
 
-## Step 2. Domain — models
+## Step 2. Domain — models + exceptions
+
+### 2.1 Models
 
 File: `TechChallenge.Calculator.Domain/Models.cs`
 
@@ -79,6 +87,49 @@ public record CarbonFootprint(double TotalKg);
 ```
 
 These are our business concepts, not external API shapes. External DTOs live in Infrastructure.
+
+### 2.2 Domain Exceptions
+
+File: `TechChallenge.Calculator.Domain/Exceptions/`
+
+```csharp
+// Base — all domain exceptions inherit from this
+public class CalculatorDomainException(string message, Exception? inner = null)
+    : Exception(message, inner);
+
+// Thrown by Infrastructure clients when upstream is unreachable after all retries
+public class UpstreamUnavailableException(string serviceName, Exception inner)
+    : CalculatorDomainException($"Upstream service '{serviceName}' is unavailable", inner);
+
+// Thrown by Application when request validation fails
+public class InvalidCalculationRequestException(string reason)
+    : CalculatorDomainException($"Invalid calculation request: {reason}");
+```
+
+Why domain exceptions: they belong to our business language, not to HTTP or infrastructure. The API layer maps them to HTTP status codes — domain doesn't know about HTTP.
+
+---
+
+## Step 2b. Logging Strategy
+
+**Log levels by layer:**
+
+| Level | Where | What |
+|-------|-------|------|
+| `Debug` | EmissionsClient | Cache hit/miss details, cached block count |
+| `Debug` | CalculatorService | Per-period calculation details (avg watts, kWh, co2) |
+| `Information` | Program.cs endpoint | Incoming request: userId, from, to |
+| `Information` | CalculatorService | Calculation complete: userId, total CO₂, period count, elapsed ms |
+| `Warning` | MeasurementsClient | Retry attempt (attempt N, status code, delay) |
+| `Warning` | EmissionsClient | Timeout triggered, retrying |
+| `Warning` | CalculatorService | Missing emission factor for period, skipping |
+| `Error` | ExceptionHandlingMiddleware | Unhandled exception (full stack trace) |
+| `Error` | MeasurementsClient | All retries exhausted → UpstreamUnavailableException |
+| `Error` | EmissionsClient | All retries exhausted → UpstreamUnavailableException |
+
+**Implementation**: use `ILogger<T>` (built-in .NET), no extra packages needed. Polly v8 has built-in logging for retry/timeout events via `ResilienceHandlerOptions`.
+
+Use **high-performance logging** with `LoggerMessage.Define` or `[LoggerMessage]` source generator for hot paths (per-period calculation).
 
 ---
 
@@ -92,21 +143,25 @@ Returns domain models, not DTOs — Infrastructure maps DTOs → domain.
 
 ### 3.2 CalculatorService
 - Interface: `ICalculatorService.CalculateAsync(string userId, long from, long to, CancellationToken ct) → CarbonFootprint`
-- Dependencies: `IMeasurementsClient`, `IEmissionsClient`
+- Dependencies: `IMeasurementsClient`, `IEmissionsClient`, `ILogger<CalculatorService>`
+- Throws `InvalidCalculationRequestException` if `from >= to` or `from < 0`
 
 Algorithm:
-1. Parallel fetch via `Task.WhenAll(measurements, emissions)`
-2. Emissions → `Dictionary<long, double>` (timestamp → factor)
-3. Measurements → group by 15-min period: `timestamp / 900 * 900`
-4. For each group:
+1. Log Information: incoming calculation request
+2. Parallel fetch via `Task.WhenAll(measurements, emissions)`
+3. Emissions → `Dictionary<long, double>` (timestamp → factor)
+4. Measurements → group by 15-min period: `timestamp / 900 * 900`
+5. For each group:
    - `avg_watts = measurements.Average(m => m.Watts)` — skip empty groups
    - `kWh = avg_watts / 4.0 / 1000.0`
-   - `co2 = kWh * emissionFactors[periodStart]` — use `TryGetValue`, skip if factor missing
-5. Sum → `CarbonFootprint(total)`
+   - `co2 = kWh * emissionFactors[periodStart]` — use `TryGetValue`, log Warning + skip if factor missing
+   - Log Debug: per-period details
+6. Sum → `CarbonFootprint(total)`
+7. Log Information: calculation complete with elapsed time
 
 Edge cases:
 - Empty measurements for a period → skip (contributes 0)
-- Missing emission factor for a period → skip (no factor = can't calculate)
+- Missing emission factor for a period → log Warning, skip
 - `from` not aligned to 900s → first period is partial, still works (just fewer readings)
 
 ---
@@ -122,7 +177,9 @@ public record EmissionResponseDto(long Timestamp, double KgPerWattHr);
 ### 4.2 MeasurementsClient
 - Implements `IMeasurementsClient`
 - Typed HttpClient via `IHttpClientFactory`
+- Dependencies: `HttpClient`, `ILogger<MeasurementsClient>`
 - Deserializes `MeasurementResponseDto[]` → maps to `EnergyReading[]`
+- Catches `HttpRequestException` / `TimeoutRejectedException` after Polly exhaustion → throws `UpstreamUnavailableException("Measurements", ex)`
 - Resilience: configured externally in Program.cs (Polly v8 pipeline)
 
 Polly v8 Resilience Pipeline (configured in Program.cs):
@@ -132,12 +189,14 @@ Polly v8 Resilience Pipeline (configured in Program.cs):
 ### 4.3 EmissionsClient
 - Implements `IEmissionsClient`
 - Typed HttpClient
+- Dependencies: `HttpClient`, `IMemoryCache`, `ILogger<EmissionsClient>`
 - Deserializes `EmissionResponseDto[]` → maps to `EmissionFactor[]`
+- Catches `HttpRequestException` / `TimeoutRejectedException` after Polly exhaustion → throws `UpstreamUnavailableException("Emissions", ex)`
 - **Cache-Aside with 15-minute block granularity** via `IMemoryCache`:
   - On response: cache each `EmissionFactor` individually, key = `emission:{timestamp}`
   - On request: check if ALL needed 15-min timestamps are cached
-    - All cached → return from cache, no HTTP call (chaos completely bypassed)
-    - Any missing → fetch full range from API, cache each block, return
+    - All cached → log Debug "cache hit", return from cache, no HTTP call
+    - Any missing → log Debug "cache miss", fetch full range from API, cache each block, return
   - TTL: 24 hours (historical data never changes)
 
 Polly v8 Resilience Pipeline (configured in Program.cs):
@@ -158,11 +217,29 @@ DI registration:
 2. `builder.Services.AddHttpClient<IMeasurementsClient, MeasurementsClient>(...)` + `.AddResilienceHandler(...)` (Polly v8)
 3. `builder.Services.AddHttpClient<IEmissionsClient, EmissionsClient>(...)` + `.AddResilienceHandler(...)`
 4. `builder.Services.AddScoped<ICalculatorService, CalculatorService>()`
-5. `app.MapGet("/calculate/{userId}", handler)`
+5. `app.UseMiddleware<ExceptionHandlingMiddleware>()`
+6. `app.MapGet("/calculate/{userId}", handler)`
 
-Error handling:
-- 400: invalid/missing `from`/`to`
-- 502: upstream unavailable after all retries (catch `HttpRequestException` / `TimeoutRejectedException`)
+### 5.2 Exception Handling Middleware
+
+File: `TechChallenge.Calculator.Api/Middleware/ExceptionHandlingMiddleware.cs`
+
+Global middleware that catches exceptions and maps to HTTP responses:
+
+| Exception | HTTP Status | Log Level |
+|-----------|-------------|-----------|
+| `InvalidCalculationRequestException` | 400 Bad Request | Warning |
+| `UpstreamUnavailableException` | 502 Bad Gateway | Error |
+| Any other `Exception` | 500 Internal Server Error | Error |
+
+Response body format:
+```json
+{ "error": "error message here" }
+```
+
+Registered in Program.cs via `app.UseMiddleware<ExceptionHandlingMiddleware>()` before endpoint mapping.
+
+This keeps the endpoint handler clean — it just calls `ICalculatorService` and returns the result. All error mapping is centralized.
 
 ---
 
@@ -182,6 +259,8 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 4. **Emissions timeout** — mock delays 15s → timeout triggers retry → eventually succeeds
 5. **Invalid parameters** — missing `from`/`to` → 400
 6. **Empty data** — no measurements in range → returns 0
+7. **Upstream down** — all retries fail → 502 Bad Gateway
+8. **Exception handling** — verify error response format `{ "error": "..." }`
 
 ### Add to `Directory.Packages.props`:
 - `Microsoft.AspNetCore.Mvc.Testing`
@@ -208,6 +287,9 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 | **Domain** | |
 | `calculator-api/src/TechChallenge.Calculator.Domain/*.csproj` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Domain/Models.cs` | **Create** |
+| `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/CalculatorDomainException.cs` | **Create** |
+| `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/UpstreamUnavailableException.cs` | **Create** |
+| `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/InvalidCalculationRequestException.cs` | **Create** |
 | **Application** | |
 | `calculator-api/src/TechChallenge.Calculator.Application/*.csproj` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Application/IMeasurementsClient.cs` | **Create** |
@@ -223,7 +305,8 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 | **Api** | |
 | `calculator-api/src/TechChallenge.Calculator.Api/*.csproj` | Update — add project refs |
 | `calculator-api/src/TechChallenge.Calculator.Api/appsettings.json` | Update — add Upstream |
-| `calculator-api/src/TechChallenge.Calculator.Api/Program.cs` | Update — DI, resilience, endpoint |
+| `calculator-api/src/TechChallenge.Calculator.Api/Program.cs` | Update — DI, resilience, endpoint, middleware |
+| `calculator-api/src/TechChallenge.Calculator.Api/Middleware/ExceptionHandlingMiddleware.cs` | **Create** |
 | **Tests** | |
 | `calculator-api/tests/TechChallenge.Calculator.E2E/*.csproj` | **Create** |
 | `calculator-api/tests/TechChallenge.Calculator.E2E/CalculatorE2ETests.cs` | **Create** |
