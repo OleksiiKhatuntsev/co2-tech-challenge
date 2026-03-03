@@ -1,5 +1,21 @@
 # Notes
 
+## Library Decisions
+
+### NSubstitute over Moq
+
+Moq 4.20.0 shipped with SponsorLink — telemetry that collected user data without consent. Although removed in 4.20.2, the trust breach remains. NSubstitute has no such history, offers cleaner syntax (`Received()` vs `Verify()`), and is equally capable. Decision: **NSubstitute** for all mocking.
+
+### FluentAssertions — mandatory
+
+FluentAssertions is required (not optional) for all test projects. Rationale: readable assertions are critical for test maintainability — `result.TotalKg.Should().BeApproximately(expected, 0.001)` communicates intent far better than `Assert.Equal`. Note: verify license compatibility (v7+ changed to commercial for companies with >3 developers).
+
+### Microsoft.Extensions.Http.Resilience — Api project only
+
+Polly v8 resilience pipelines are configured in `Program.cs` (composition root). Infrastructure clients receive a plain `HttpClient` — they don't know about retry/circuit breaker policies. This follows **Dependency Inversion**: the outer layer (Api) configures cross-cutting concerns, inner layers (Infrastructure) are unaware. The package must NOT be referenced from Infrastructure.csproj.
+
+---
+
 ## Caching Strategy
 
 ### Emissions API — Point-level Cache with Startup Warm-up

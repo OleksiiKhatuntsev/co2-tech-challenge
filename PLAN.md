@@ -52,10 +52,11 @@ Interfaces in Application, implementations in Infrastructure — Dependency Inve
 ### 1.1 Create class library projects
 - `calculator-api/src/TechChallenge.Calculator.Domain/TechChallenge.Calculator.Domain.csproj` — SDK: `Microsoft.NET.Sdk`, net8.0
 - `calculator-api/src/TechChallenge.Calculator.Application/TechChallenge.Calculator.Application.csproj` — SDK: `Microsoft.NET.Sdk`, net8.0, refs: Domain
-- `calculator-api/src/TechChallenge.Calculator.Infrastructure/TechChallenge.Calculator.Infrastructure.csproj` — SDK: `Microsoft.NET.Sdk`, net8.0, refs: Application, Domain; packages: `Microsoft.Extensions.Http.Resilience`, `Microsoft.Extensions.Caching.Memory`
+- `calculator-api/src/TechChallenge.Calculator.Infrastructure/TechChallenge.Calculator.Infrastructure.csproj` — SDK: `Microsoft.NET.Sdk`, net8.0, refs: Application, Domain; packages: `Microsoft.Extensions.Caching.Memory`
 
 ### 1.2 Update existing Calculator.Api.csproj
 - Add ProjectReference: Application, Infrastructure
+- Add PackageReference: `Microsoft.Extensions.Http.Resilience` (for Polly v8 pipeline config in Program.cs)
 
 ### 1.3 Add packages to `Directory.Packages.props`
 - `Microsoft.Extensions.Http.Resilience` (Polly v8, replaces legacy `Microsoft.Extensions.Http.Polly`)
@@ -112,7 +113,7 @@ Why domain exceptions: they belong to our business language, not to HTTP or infr
 
 ## Step 2b. Logging Strategy
 
-**Log levels by layer:**
+Log levels by layer:
 
 | Level | Where | What |
 |-------|-------|------|
@@ -127,9 +128,9 @@ Why domain exceptions: they belong to our business language, not to HTTP or infr
 | `Error` | MeasurementsClient | All retries exhausted → UpstreamUnavailableException |
 | `Error` | EmissionsClient | All retries exhausted → UpstreamUnavailableException |
 
-**Implementation**: use `ILogger<T>` (built-in .NET), no extra packages needed. Polly v8 has built-in logging for retry/timeout events via `ResilienceHandlerOptions`.
+Implementation: use `ILogger<T>` (built-in .NET), no extra packages needed. Polly v8 has built-in logging for retry/timeout events via `ResilienceHandlerOptions`.
 
-Use **high-performance logging** with `LoggerMessage.Define` or `[LoggerMessage]` source generator for hot paths (per-period calculation).
+Use high-performance logging with `LoggerMessage.Define` or `[LoggerMessage]` source generator for hot paths (per-period calculation).
 
 ---
 
@@ -243,7 +244,46 @@ This keeps the endpoint handler clean — it just calls `ICalculatorService` and
 
 ---
 
-## Step 6. E2E Tests
+## Step 6. Unit Tests
+
+Project: `calculator-api/tests/TechChallenge.Calculator.UnitTests/` (xUnit + NSubstitute)
+
+Unit tests for **every public method** across all layers. Dependencies mocked via **NSubstitute** (chosen over Moq due to SponsorLink incident in NSubstitute 4.20.0 — telemetry without consent. NSubstitute has cleaner syntax and no trust issues).
+
+### 6.1 CalculatorService tests
+- `CalculateAsync_HappyPath_ReturnsCorrectCo2` — known measurements + factors → verify exact result
+- `CalculateAsync_EmptyMeasurements_ReturnsZero` — no readings → CarbonFootprint(0)
+- `CalculateAsync_MissingEmissionFactor_SkipsPeriod` — factor missing for one period → calculates rest
+- `CalculateAsync_InvalidFromTo_ThrowsInvalidCalculationRequestException` — from >= to
+- `CalculateAsync_CallsUpstreamsInParallel` — verify both clients called, not sequential
+- `CalculateAsync_MultiplePeriodsGroupedCorrectly` — readings split across 15-min boundaries
+
+### 6.2 MeasurementsClient tests
+- `GetReadingsAsync_Success_ReturnsMappedDomainModels` — mock HttpMessageHandler returns DTOs → verify EnergyReading[]
+- `GetReadingsAsync_HttpFailure_ThrowsUpstreamUnavailableException` — mock returns 500 → verify exception type + message
+- `GetReadingsAsync_EmptyResponse_ReturnsEmptyArray`
+
+### 6.3 EmissionsClient tests
+- `GetFactorsAsync_CacheMiss_FetchesFromApi` — empty cache → verify HTTP call made + factors cached
+- `GetFactorsAsync_CacheHit_ReturnsFromCache` — pre-populated cache → verify NO HTTP call
+- `GetFactorsAsync_PartialCacheHit_FetchesFromApi` — some blocks cached → verify HTTP call + all blocks returned
+- `GetFactorsAsync_HttpFailure_ThrowsUpstreamUnavailableException`
+- `GetFactorsAsync_CachesIndividualBlocks` — verify each 15-min factor cached separately
+
+### 6.4 ExceptionHandlingMiddleware tests
+- `Invoke_InvalidCalculationRequestException_Returns400`
+- `Invoke_UpstreamUnavailableException_Returns502`
+- `Invoke_UnhandledException_Returns500`
+- `Invoke_NoException_PassesThrough`
+
+### Add to `Directory.Packages.props`:
+- `NSubstitute`
+- `Microsoft.NET.Test.Sdk`
+- `FluentAssertions` (optional, for readable assertions)
+
+---
+
+## Step 7. E2E Tests
 
 Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 
@@ -269,10 +309,10 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 
 ---
 
-## Step 7. Verification
+## Step 8. Verification
 
 1. `dotnet build TechChallenge.sln`
-2. `dotnet test` — all E2E tests pass
+2. `dotnet test` — all unit + E2E tests pass
 3. Manual: start 3 services, `curl "http://localhost:5000/calculate/alpha?from=1609459200&to=1609462800"`
 4. `docker compose up --build` — verify containerized setup
 
@@ -282,8 +322,8 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 
 | File | Action |
 |------|--------|
-| `Directory.Packages.props` | Add Resilience, Caching, WireMock, xUnit packages |
-| `TechChallenge.sln` | Add 3 new projects + test project |
+| `Directory.Packages.props` | Add Resilience, Caching, NSubstitute, WireMock, xUnit packages |
+| `TechChallenge.sln` | Add 3 new projects + 2 test projects |
 | **Domain** | |
 | `calculator-api/src/TechChallenge.Calculator.Domain/*.csproj` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Domain/Models.cs` | **Create** |
@@ -307,6 +347,14 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 | `calculator-api/src/TechChallenge.Calculator.Api/appsettings.json` | Update — add Upstream |
 | `calculator-api/src/TechChallenge.Calculator.Api/Program.cs` | Update — DI, resilience, endpoint, middleware |
 | `calculator-api/src/TechChallenge.Calculator.Api/Middleware/ExceptionHandlingMiddleware.cs` | **Create** |
-| **Tests** | |
+| **Unit Tests** | |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/*.csproj` | **Create** — refs: Application, Infrastructure, Domain |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/CalculatorServiceTests.cs` | **Create** |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/MeasurementsClientTests.cs` | **Create** |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/EmissionsClientTests.cs` | **Create** |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/ExceptionHandlingMiddlewareTests.cs` | **Create** |
+| **E2E Tests** | |
 | `calculator-api/tests/TechChallenge.Calculator.E2E/*.csproj` | **Create** |
 | `calculator-api/tests/TechChallenge.Calculator.E2E/CalculatorE2ETests.cs` | **Create** |
+| **Docs** | |
+| `Notes.md` (repo root) | **Create** — architectural decisions log (NSubstitute choice rationale, etc.) |

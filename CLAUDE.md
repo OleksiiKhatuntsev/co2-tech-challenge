@@ -156,3 +156,6 @@ docker compose up --build
 - Project name: `TechChallenge.Calculator.Api`
 - 3rd-party libraries are allowed — Polly is the de-facto standard for resilience in .NET
 - C# 12 features are encouraged (primary constructors, collection expressions, etc.)
+- **Mocking:** NSubstitute (not Moq — SponsorLink trust breach)
+- **Assertions:** FluentAssertions — mandatory for all test projects
+- **Architectural decisions log:** `NOTES.md` in repo root — all decisions with rationale must be recorded there
