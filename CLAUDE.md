@@ -34,7 +34,7 @@ TechChallenge.sln
 │   ├── TechChallenge.ChaosMonkey/    ← chaos injection (ErrorChaosMonkey, DelayChaosMonkey)
 │   ├── TechChallenge.Common/         ← NotFoundException
 │   └── TechChallenge.DataSimulator/  ← deterministic data generation via seeded RNG
-└── calculator-api/src/TechChallenge.Calculator.Api/        ← TO BE CREATED
+└── calculator-api/src/TechChallenge.Calculator.Api/        ← main project
 ```
 
 `Directory.Build.props` applies globally: `ImplicitUsings=enable`, `Nullable=enable`.
@@ -109,17 +109,27 @@ For Emissions, the cache is the primary defense — timeout is a secondary safeg
 
 ---
 
-## Docker Issues (Known Bugs)
+## Docker Setup
 
-**Emissions Dockerfile** (`emissions-api/src/TechChallenge.Emissions.Api/Dockerfile`):
-- Line 1: `FROM mcr.microsoft.com/dotnet/aspnet:6.0` — wrong version, must be `aspnet:8.0`
+Three Dockerfiles, identical structure (multi-stage, `aspnet:8.0`), build context = repo root (required for shared libraries):
 
-**Measurements Dockerfile** (`measurements-api/src/TechChallenge.Measurements.Api/Dockerfile`):
-- Missing `WORKDIR /src` before `COPY` in the build stage
+- `emissions-api/src/TechChallenge.Emissions.Api/Dockerfile`
+- `measurements-api/src/TechChallenge.Measurements.Api/Dockerfile`
+- `calculator-api/src/TechChallenge.Calculator.Api/Dockerfile`
 
-**docker-compose.yml:** does not exist yet — must be created at repo root.
+**docker-compose.yml** (repo root):
 
-Build context for all Dockerfiles is the **repo root** (shared libraries require it).
+| Service | Host Port | Container Port |
+|---------|-----------|----------------|
+| measurements | 5153 | 8080 |
+| emissions | 5139 | 8080 |
+| calculator | 5000 | 8080 |
+
+Calculator env vars:
+- `Upstream__MeasurementsUrl=http://measurements:8080`
+- `Upstream__EmissionsUrl=http://emissions:8080`
+
+`depends_on`: calculator → measurements, emissions.
 
 ---
 
@@ -134,7 +144,7 @@ dotnet run --project measurements-api/src/TechChallenge.Measurements.Api
 dotnet run --project emissions-api/src/TechChallenge.Emissions.Api
 dotnet run --project calculator-api/src/TechChallenge.Calculator.Api
 
-# Docker (after fixing Dockerfiles)
+# Docker
 docker compose up --build
 ```
 
