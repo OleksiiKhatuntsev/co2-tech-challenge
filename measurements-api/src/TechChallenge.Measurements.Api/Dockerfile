@@ -6,6 +6,7 @@ EXPOSE 8081
 
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 ARG BUILD_CONFIGURATION=Release
+WORKDIR /src
 COPY ["measurements-api/src/TechChallenge.Measurements.Api/TechChallenge.Measurements.Api.csproj", "measurements-api/src/TechChallenge.Measurements.Api/"]
 RUN dotnet restore "measurements-api/src/TechChallenge.Measurements.Api/TechChallenge.Measurements.Api.csproj"
 COPY . .

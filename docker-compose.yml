@@ -1,0 +1,27 @@
+services:
+  measurements:
+    build:
+      context: .
+      dockerfile: measurements-api/src/TechChallenge.Measurements.Api/Dockerfile
+    ports:
+      - "5153:8080"
+
+  emissions:
+    build:
+      context: .
+      dockerfile: emissions-api/src/TechChallenge.Emissions.Api/Dockerfile
+    ports:
+      - "5139:8080"
+
+  calculator:
+    build:
+      context: .
+      dockerfile: calculator-api/src/TechChallenge.Calculator.Api/Dockerfile
+    ports:
+      - "5000:8080"
+    environment:
+      - Upstream__MeasurementsUrl=http://measurements:8080
+      - Upstream__EmissionsUrl=http://emissions:8080
+    depends_on:
+      - measurements
+      - emissions
