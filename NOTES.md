@@ -89,3 +89,28 @@ Measurements data is not cached.
 - Measurements are per-user — the cache key would be `(userId, from, to)`, providing no sharing benefit across different users.
 - The primary load pattern (many users, same timeframe) means every request has a unique `userId`, so cache hit rate would be near zero.
 - The Measurements API chaos is a 30% error rate, not a delay. The correct strategy is **Retry with exponential backoff** (via Polly), not caching. A failed request returns no data to cache anyway.
+
+---
+
+## Application Service Design — Orchestration vs Calculation
+
+### Decision: keep orchestration and calculation together in `CalculatorService`
+
+`CalculatorService.CalculateAsync` has three responsibilities: input validation, parallel data fetching, and CO₂ computation. This is a classic **Application Service** (DDD) — an orchestrator that glues infrastructure to domain logic.
+
+**Alternative considered:** extract a pure **Domain Service** (`CarbonFootprintCalculator.Calculate(readings, factors)`) — a static function with no dependencies, testable without mocks.
+
+**Why we keep it as-is:**
+
+1. **YAGNI.** The calculation logic is ~15 lines (group → average → multiply). Extracting it creates a second file and navigation layer with no real benefit.
+2. **Single algorithm.** There are no calculation variants (by energy source, by tariff). An abstraction for a single implementation is premature.
+3. **Mock-based tests are acceptable.** At the current logic volume, mocking `IMeasurementsClient` / `IEmissionsClient` causes no friction.
+
+**When to revisit:**
+
+- A second calculation algorithm appears (different formulas for different sources)
+- Data normalization/interpolation is added
+- Unit tests become awkward due to mock complexity
+- The method grows beyond ~50 lines
+
+At that point, extract `CarbonFootprintCalculator` as a pure function in the Domain layer.
