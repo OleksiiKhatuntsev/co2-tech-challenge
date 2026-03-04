@@ -304,3 +304,63 @@ All **8 E2E tests pass** (7.6 seconds total). Combined with 28 unit tests → **
 - 28 unit tests: 46 ms
 - 8 E2E tests: 4 seconds
 - Total: 4 seconds (parallel execution)
+
+---
+
+## Development Methodology — Agent Driven Development
+
+### What is Agent Driven Development
+
+This project was built using **Agent Driven Development (ADD)** — a methodology where an AI agent (LLM) acts as the primary code author, while the human developer acts as architect, reviewer, and decision-maker.
+
+The human defines *what* to build and *why*; the agent implements *how*, writes code, tests, and documentation. The human reviews every commit, validates architectural decisions, and steers the direction.
+
+### Why ADD for this project
+
+1. **Accelerated implementation.** The domain is well-defined (CO₂ calculation from two upstream APIs) with clear inputs and outputs. The agent can produce boilerplate, DI wiring, HTTP clients, and test scaffolding faster than manual coding, freeing the developer to focus on architecture and trade-off decisions.
+2. **Consistent quality.** Each step goes through a structured verify cycle (build → test → review → commit). The agent doesn't skip tests or forget edge cases — every step in the plan includes both implementation and verification.
+3. **Documented decisions.** The conversational nature of ADD produces rich decision logs naturally. Every trade-off (why NSubstitute over Moq, why cache-aside instead of warm-up, why 5 fast retries with 1s timeout) was discussed, challenged, and documented as part of the development flow — resulting in the detailed `NOTES.md`.
+
+### Process
+
+The development followed a strict **Plan → Execute-one-step → Verify → Commit → Repeat** loop:
+
+**Phase 1 — Planning**
+
+A comprehensive `PLAN.md` was created upfront, covering:
+- Clean Architecture project structure and dependency graph
+- Domain models and exception hierarchy
+- Application layer interfaces and business logic design
+- Infrastructure layer with caching strategy, resilience pipelines, and timeout mechanics
+- API layer composition root, middleware, and endpoint design
+- Unit and E2E test strategy with specific test scenarios
+
+The plan was reviewed and refined by the human before any code was written. Each step had clear deliverables and a verification gate (`dotnet build` / `dotnet test`).
+
+**Phase 2 — Step-by-step execution**
+
+Each step from `PLAN.md` was executed in isolation and committed individually:
+
+| Commit | Step | What was done | Verification |
+|--------|------|---------------|--------------|
+| 1 | Step 1 | Created projects, wired references, added NuGet packages | `dotnet build` → 0 errors |
+| 2 | Step 2 | Domain models (`EnergyReading`, `EmissionFactor`, `CarbonFootprint`) + exception hierarchy | `dotnet build` → 0 errors |
+| 3 | Step 3 | Application interfaces + `CalculatorService` + 11 unit tests | `dotnet test` → 23 passed |
+| 4 | Step 4 | Infrastructure HTTP clients (`MeasurementsClient`, `EmissionsClient`) + cache logic | `dotnet test` → 23 passed |
+| 5 | Step 5 | `Program.cs` composition root, Polly resilience pipelines, middleware, endpoints | `dotnet build` → 0 errors |
+| 6 | Step 6 | Full unit test suite (28 tests) including middleware tests | `dotnet test` → 28 passed |
+| 7 | Step 7 | E2E tests with `WebApplicationFactory` + WireMock (8 tests) | `dotnet test` → 36 passed |
+| 8 | Step 8 | Final verification, manual testing, docker-compose | All green |
+
+**Key discipline:** no step was started until the previous step's verification gate passed. If a step broke the build or tests, it was fixed within the same commit before moving forward.
+
+**Phase 3 — Documentation**
+
+Architecture decisions, trade-off rationale, and implementation notes were captured in `NOTES.md` as an integral part of each step — not as an afterthought.
+
+### Benefits observed
+
+- **Traceability.** Every commit maps to exactly one plan step. `git log` reads like a project timeline, and each commit is independently reviewable.
+- **Rollback safety.** If a step introduced a problem, reverting one commit rolls back exactly one logical change — no tangled multi-feature commits.
+- **Forced verification.** The build/test gate after each step caught issues early (e.g., missing package references, incorrect DI registrations) before they compounded.
+- **Clear separation of concerns.** The human focused on architecture (Clean Architecture layers, caching strategy, resilience design) while the agent handled implementation details (boilerplate, test fixtures, DI wiring).
