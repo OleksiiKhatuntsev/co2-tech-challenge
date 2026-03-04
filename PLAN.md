@@ -212,7 +212,7 @@ Polly v8 Resilience Pipeline (configured in Program.cs):
 
 ---
 
-## Step 5. Program.cs — Composition Root + Endpoint
+## ✅ Step 5. Program.cs — Composition Root + Endpoint — DONE
 
 ```
 GET /calculate/{userId}?from={unix}&to={unix}
@@ -359,17 +359,51 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 | **Api** | |
 | `calculator-api/src/TechChallenge.Calculator.Api/*.csproj` | ✅ Done — project refs + Resilience package added |
 | `calculator-api/src/TechChallenge.Calculator.Api/appsettings.json` | ✅ Done — Upstream section added |
-| `calculator-api/src/TechChallenge.Calculator.Api/Program.cs` | Update — DI, resilience, endpoint, middleware |
-| `calculator-api/src/TechChallenge.Calculator.Api/Middleware/ExceptionHandlingMiddleware.cs` | **Create** |
+| `calculator-api/src/TechChallenge.Calculator.Api/Program.cs` | ✅ Done — DI, resilience, endpoint, middleware |
+| `calculator-api/src/TechChallenge.Calculator.Api/Middleware/ExceptionHandlingMiddleware.cs` | ✅ Done |
 | **Unit Tests** | |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/*.csproj` | ✅ Done |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/CalculatorServiceTests.cs` | ✅ Done (11 tests) |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/MeasurementsClientTests.cs` | ✅ Done (5 tests) |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/EmissionsClientTests.cs` | ✅ Done (7 tests) |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/MockHttpHandler.cs` | ✅ Done |
-| `calculator-api/tests/TechChallenge.Calculator.UnitTests/ExceptionHandlingMiddlewareTests.cs` | **Create** |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/Api/ExceptionHandlingMiddlewareTests.cs` | ✅ Done (5 tests) |
 | **E2E Tests** | |
 | `calculator-api/tests/TechChallenge.Calculator.E2E/*.csproj` | ✅ Done |
 | `calculator-api/tests/TechChallenge.Calculator.E2E/CalculatorE2ETests.cs` | **Create** |
 | **Docs** | |
-| `Notes.md` (repo root) | **Create** — architectural decisions log |
+| `NOTES.md` (repo root) | ✅ Done — API Layer section added |
+
+---
+
+## Step 5 Summary
+
+**Result:** `dotnet build` → Build succeeded, `dotnet test` → **28 passed** (23 existing + 5 middleware tests)
+
+### Created/Updated:
+
+1. **`Middleware/ExceptionHandlingMiddleware.cs`** — Exception mapping middleware
+   - `InvalidCalculationRequestException` → 400 Bad Request
+   - `UpstreamUnavailableException` → 502 Bad Gateway
+   - Any other exception → 500 Internal Server Error
+   - Response format: `{ "error": "message" }`
+
+2. **`Program.cs`** — Full Composition Root
+   - DI: MemoryCache, typed HttpClients (Measurements + Emissions), CalculatorService
+   - Measurements resilience: retry 3 + circuit breaker
+   - Emissions resilience: outer timeout 30s + retry 5 (1s per-attempt) + inner timeout
+   - Endpoints: `/calculate/{userId}?from={unix}&to={unix}`, `/health`
+   - `public partial class Program` for WebApplicationFactory
+
+3. **`Api/ExceptionHandlingMiddlewareTests.cs`** — 5 unit tests
+   - NoException_PassesThrough
+   - InvalidCalculationRequestException_Returns400
+   - UpstreamUnavailableException_Returns502
+   - UnhandledException_Returns500
+   - ErrorResponse_HasJsonFormat
+
+4. **`NOTES.md`** — API Layer documentation
+   - Composition Root Pattern + typed HttpClient rationale
+   - Endpoint design + liveness probe explanation
+   - ExceptionHandlingMiddleware + security decisions
+   - Resilience pipelines (Polly v8) — onion model, timeout levels, circuit breaker trade-offs
