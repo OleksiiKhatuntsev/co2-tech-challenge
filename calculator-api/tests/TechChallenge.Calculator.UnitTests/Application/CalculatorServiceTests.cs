@@ -1,7 +1,7 @@
 using TechChallenge.Calculator.Application.Abstractions;
 using TechChallenge.Calculator.Application.Services;
 
-namespace TechChallenge.Calculator.UnitTests;
+namespace TechChallenge.Calculator.UnitTests.Application;
 
 using FluentAssertions;
 using Microsoft.Extensions.Logging;

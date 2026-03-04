@@ -18,6 +18,16 @@ Polly v8 resilience pipelines are configured in `Program.cs` (composition root).
 
 ## Caching Strategy
 
+### Cache Lives in Infrastructure, Not Application
+
+The `IMemoryCache` for emissions data is owned by `EmissionsClient` (Infrastructure layer), not by `CalculatorService` (Application layer).
+
+**Why:** Cache-Aside is a **transport optimization** — it decides *how* data is fetched, not *what* we do with it. The Application layer calls `IEmissionsClient.GetFactorsAsync` and is unaware whether the response came from HTTP or cache. This follows **Dependency Inversion**: the port (`IEmissionsClient`) defines the contract, the adapter (`EmissionsClient`) decides the strategy.
+
+**When caching WOULD belong in Application:** if the cache logic depended on business rules (e.g., invalidation on tariff changes, caching computed results rather than raw data). Our case is simpler — emission factors are historical and immutable, so caching is purely an infrastructure concern.
+
+**Trade-off:** Infrastructure owns the cache TTL and eviction policy. If business rules ever need to control cache behavior (e.g., force-refresh on regulatory change), the cache would need to move up to Application or be exposed via a configuration abstraction.
+
 ### Emissions API — Cache-Aside (Lazy), No Warm-up
 
 Emissions data is cached **per individual 15-min timestamp** using `IMemoryCache`. Key format: `emission:{timestamp}`, TTL: 24 hours.

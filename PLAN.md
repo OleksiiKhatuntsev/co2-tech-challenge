@@ -163,24 +163,24 @@ Returns domain models, not DTOs — Infrastructure maps DTOs → domain.
 - Happy path, empty measurements, missing factor, invalid from/to, negative from, not aligned to 15-min boundaries (3 cases), parallel calls, multi-period grouping
 - All magic numbers extracted into named variables for readability
 
-**Result:** `dotnet test` → Passed: 11, Failed: 0
+**Result:** `dotnet test` → Passed: 23, Failed: 0 (11 CalculatorService + 5 MeasurementsClient + 7 EmissionsClient)
 
 ---
 
-## Step 4. Infrastructure — HTTP clients
+## ✅ Step 4. Infrastructure — HTTP clients — DONE
 
-### 4.1 DTOs (in Infrastructure/Dto/)
+### 4.1 DTOs (in Infrastructure/Dto/) ✅
 ```csharp
 public record MeasurementResponseDto(long Timestamp, double Watts);
 public record EmissionResponseDto(long Timestamp, double KgPerWattHr);
 ```
 
-### 4.2 MeasurementsClient
+### 4.2 MeasurementsClient ✅
 - Implements `IMeasurementsClient`
 - Typed HttpClient via `IHttpClientFactory`
 - Dependencies: `HttpClient`, `ILogger<MeasurementsClient>`
 - Deserializes `MeasurementResponseDto[]` → maps to `EnergyReading[]`
-- Catches `HttpRequestException` / `TimeoutRejectedException` after Polly exhaustion → throws `UpstreamUnavailableException("Measurements", ex)`
+- Catches `HttpRequestException` / `TimeoutException` (covers Polly's `TimeoutRejectedException` which inherits from `TimeoutException` — no Polly.Core dependency needed in Infrastructure)
 - Resilience: configured externally in Program.cs (Polly v8 pipeline)
 
 Polly v8 Resilience Pipeline (configured in Program.cs):
@@ -189,12 +189,13 @@ Polly v8 Resilience Pipeline (configured in Program.cs):
     Going to 4 retries gains only 0.57% success but worst case jumps to 23s (1+2+4+8+8 with jitter cap) — not worth it.
 - Circuit Breaker: break after 5 consecutive failures, 30s recovery
 
-### 4.3 EmissionsClient
+### 4.3 EmissionsClient ✅
 - Implements `IEmissionsClient`
 - Typed HttpClient
 - Dependencies: `HttpClient`, `IMemoryCache`, `ILogger<EmissionsClient>`
 - Deserializes `EmissionResponseDto[]` → maps to `EmissionFactor[]`
-- Catches `HttpRequestException` / `TimeoutRejectedException` after Polly exhaustion → throws `UpstreamUnavailableException("Emissions", ex)`
+- Catches `HttpRequestException` / `TimeoutException` → throws `UpstreamUnavailableException("Emissions", ex)`
+- Refactored via **Compose Method**: `GetFactorsAsync` (orchestrator) → `TryGetAllFromCache` + `FetchFromApiAsync`
 - **Cache-Aside with 15-minute block granularity** via `IMemoryCache`:
   - On response: cache each `EmissionFactor` individually, key = `emission:{timestamp}`
   - On request: check if ALL needed 15-min timestamps are cached
@@ -273,17 +274,24 @@ Unit tests for **every public method** across all layers. Dependencies mocked vi
 - `CalculateAsync_CallsUpstreamsInParallel` ✅
 - `CalculateAsync_MultiplePeriodsGroupedCorrectly` ✅
 
-### 6.2 MeasurementsClient tests
-- `GetReadingsAsync_Success_ReturnsMappedDomainModels` — mock HttpMessageHandler returns DTOs → verify EnergyReading[]
-- `GetReadingsAsync_HttpFailure_ThrowsUpstreamUnavailableException` — mock returns 500 → verify exception type + message
-- `GetReadingsAsync_EmptyResponse_ReturnsEmptyArray`
+### 6.2 MeasurementsClient tests ✅ (5 tests passing)
+- `GetReadingsAsync_Success_ReturnsMappedDomainModels` ✅
+- `GetReadingsAsync_EmptyResponse_ReturnsEmptyArray` ✅
+- `GetReadingsAsync_HttpFailure_ThrowsUpstreamUnavailableException` ✅
+- `GetReadingsAsync_Timeout_ThrowsUpstreamUnavailableException` ✅
+- `GetReadingsAsync_BuildsCorrectUrl` ✅
 
-### 6.3 EmissionsClient tests
-- `GetFactorsAsync_CacheMiss_FetchesFromApi` — empty cache → verify HTTP call made + factors cached
-- `GetFactorsAsync_CacheHit_ReturnsFromCache` — pre-populated cache → verify NO HTTP call
-- `GetFactorsAsync_PartialCacheHit_FetchesFromApi` — some blocks cached → verify HTTP call + all blocks returned
-- `GetFactorsAsync_HttpFailure_ThrowsUpstreamUnavailableException`
-- `GetFactorsAsync_CachesIndividualBlocks` — verify each 15-min factor cached separately
+### 6.3 EmissionsClient tests ✅ (7 tests passing)
+- `GetFactorsAsync_CacheMiss_FetchesFromApi` ✅
+- `GetFactorsAsync_CacheHit_ReturnsFromCacheWithoutHttpCall` ✅
+- `GetFactorsAsync_PartialCacheHit_FetchesFromApi` ✅
+- `GetFactorsAsync_CachesIndividualBlocks` ✅
+- `GetFactorsAsync_HttpFailure_ThrowsUpstreamUnavailableException` ✅
+- `GetFactorsAsync_Timeout_ThrowsUpstreamUnavailableException` ✅
+- `GetFactorsAsync_BuildsCorrectUrl` ✅
+
+### Test infrastructure ✅
+- `MockHttpHandler.cs` — minimal `HttpMessageHandler` mock (fixed response or fixed exception, tracks `CallCount` and `LastRequestUri`)
 
 ### 6.4 ExceptionHandlingMiddleware tests
 - `Invoke_InvalidCalculationRequestException_Returns400`
@@ -344,10 +352,10 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 | `calculator-api/src/TechChallenge.Calculator.Application/CalculatorService.cs` | ✅ Done |
 | **Infrastructure** | |
 | `calculator-api/src/TechChallenge.Calculator.Infrastructure/*.csproj` | ✅ Done |
-| `calculator-api/src/TechChallenge.Calculator.Infrastructure/Dto/MeasurementResponseDto.cs` | **Create** |
-| `calculator-api/src/TechChallenge.Calculator.Infrastructure/Dto/EmissionResponseDto.cs` | **Create** |
-| `calculator-api/src/TechChallenge.Calculator.Infrastructure/MeasurementsClient.cs` | **Create** |
-| `calculator-api/src/TechChallenge.Calculator.Infrastructure/EmissionsClient.cs` | **Create** |
+| `calculator-api/src/TechChallenge.Calculator.Infrastructure/Dto/MeasurementResponseDto.cs` | ✅ Done |
+| `calculator-api/src/TechChallenge.Calculator.Infrastructure/Dto/EmissionResponseDto.cs` | ✅ Done |
+| `calculator-api/src/TechChallenge.Calculator.Infrastructure/MeasurementsClient.cs` | ✅ Done |
+| `calculator-api/src/TechChallenge.Calculator.Infrastructure/EmissionsClient.cs` | ✅ Done (refactored: Compose Method) |
 | **Api** | |
 | `calculator-api/src/TechChallenge.Calculator.Api/*.csproj` | ✅ Done — project refs + Resilience package added |
 | `calculator-api/src/TechChallenge.Calculator.Api/appsettings.json` | ✅ Done — Upstream section added |
@@ -355,9 +363,10 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 | `calculator-api/src/TechChallenge.Calculator.Api/Middleware/ExceptionHandlingMiddleware.cs` | **Create** |
 | **Unit Tests** | |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/*.csproj` | ✅ Done |
-| `calculator-api/tests/TechChallenge.Calculator.UnitTests/CalculatorServiceTests.cs` | ✅ Done (8 tests) |
-| `calculator-api/tests/TechChallenge.Calculator.UnitTests/MeasurementsClientTests.cs` | **Create** |
-| `calculator-api/tests/TechChallenge.Calculator.UnitTests/EmissionsClientTests.cs` | **Create** |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/CalculatorServiceTests.cs` | ✅ Done (11 tests) |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/MeasurementsClientTests.cs` | ✅ Done (5 tests) |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/EmissionsClientTests.cs` | ✅ Done (7 tests) |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/MockHttpHandler.cs` | ✅ Done |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/ExceptionHandlingMiddlewareTests.cs` | **Create** |
 | **E2E Tests** | |
 | `calculator-api/tests/TechChallenge.Calculator.E2E/*.csproj` | ✅ Done |
