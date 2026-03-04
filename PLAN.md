@@ -89,9 +89,9 @@ Added 5 projects: Domain, Application, Infrastructure, UnitTests, E2E
 
 ---
 
-## Step 2. Domain — models + exceptions
+## ✅ Step 2. Domain — models + exceptions — DONE
 
-### 2.1 Models
+### 2.1 Models ✅
 
 File: `TechChallenge.Calculator.Domain/Models.cs`
 
@@ -103,25 +103,16 @@ public record CarbonFootprint(double TotalKg);
 
 These are our business concepts, not external API shapes. External DTOs live in Infrastructure.
 
-### 2.2 Domain Exceptions
+### 2.2 Domain Exceptions ✅
 
-File: `TechChallenge.Calculator.Domain/Exceptions/`
-
-```csharp
-// Base — all domain exceptions inherit from this
-public class CalculatorDomainException(string message, Exception? inner = null)
-    : Exception(message, inner);
-
-// Thrown by Infrastructure clients when upstream is unreachable after all retries
-public class UpstreamUnavailableException(string serviceName, Exception inner)
-    : CalculatorDomainException($"Upstream service '{serviceName}' is unavailable", inner);
-
-// Thrown by Application when request validation fails
-public class InvalidCalculationRequestException(string reason)
-    : CalculatorDomainException($"Invalid calculation request: {reason}");
-```
+Files in `TechChallenge.Calculator.Domain/Exceptions/`:
+- `CalculatorDomainException.cs` — base, primary constructor `(string message, Exception? inner = null)`
+- `UpstreamUnavailableException.cs` — `(string serviceName, Exception inner)`, message: `"Upstream service '{serviceName}' is unavailable"`
+- `InvalidCalculationRequestException.cs` — `(string reason)`, message: `"Invalid calculation request: {reason}"`
 
 Why domain exceptions: they belong to our business language, not to HTTP or infrastructure. The API layer maps them to HTTP status codes — domain doesn't know about HTTP.
+
+**Result:** `dotnet build TechChallenge.sln` → Build succeeded (0 errors)
 
 ---
 
@@ -345,10 +336,10 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 | `TechChallenge.sln` | ✅ Done — 5 projects added |
 | **Domain** | |
 | `calculator-api/src/TechChallenge.Calculator.Domain/*.csproj` | ✅ Done |
-| `calculator-api/src/TechChallenge.Calculator.Domain/Models.cs` | **Create** |
-| `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/CalculatorDomainException.cs` | **Create** |
-| `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/UpstreamUnavailableException.cs` | **Create** |
-| `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/InvalidCalculationRequestException.cs` | **Create** |
+| `calculator-api/src/TechChallenge.Calculator.Domain/Models.cs` | ✅ Done |
+| `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/CalculatorDomainException.cs` | ✅ Done |
+| `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/UpstreamUnavailableException.cs` | ✅ Done |
+| `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/InvalidCalculationRequestException.cs` | ✅ Done |
 | **Application** | |
 | `calculator-api/src/TechChallenge.Calculator.Application/*.csproj` | ✅ Done |
 | `calculator-api/src/TechChallenge.Calculator.Application/IMeasurementsClient.cs` | **Create** |
