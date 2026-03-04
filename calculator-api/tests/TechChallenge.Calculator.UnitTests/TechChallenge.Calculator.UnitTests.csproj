@@ -15,5 +15,6 @@
     <ProjectReference Include="..\..\src\TechChallenge.Calculator.Domain\TechChallenge.Calculator.Domain.csproj" />
     <ProjectReference Include="..\..\src\TechChallenge.Calculator.Application\TechChallenge.Calculator.Application.csproj" />
     <ProjectReference Include="..\..\src\TechChallenge.Calculator.Infrastructure\TechChallenge.Calculator.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\TechChallenge.Calculator.Api\TechChallenge.Calculator.Api.csproj" />
   </ItemGroup>
 </Project>

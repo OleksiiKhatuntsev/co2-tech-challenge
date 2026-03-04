@@ -140,3 +140,70 @@ Measurements data is not cached.
 - The method grows beyond ~50 lines
 
 At that point, extract `CarbonFootprintCalculator` as a pure function in the Domain layer.
+
+---
+
+## API Layer — Composition Root + Resilience
+
+### Program.cs — Composition Root Pattern
+
+`Program.cs` is the **Composition Root** — the single place where all dependencies are wired together. No other layer knows about DI registration or configuration values.
+
+**DI registrations:**
+1. `AddMemoryCache()` — backing store for `EmissionsClient` Cache-Aside
+2. `AddHttpClient<IMeasurementsClient, MeasurementsClient>` — typed HttpClient with base address from `Upstream:MeasurementsUrl`
+3. `AddHttpClient<IEmissionsClient, EmissionsClient>` — typed HttpClient with base address from `Upstream:EmissionsUrl`
+4. `AddScoped<ICalculatorService, CalculatorService>()` — scoped because it orchestrates scoped HTTP calls
+
+**Why typed `HttpClient` via `IHttpClientFactory`?** `HttpClient` is not thread-safe for configuration changes, and creating new instances leaks sockets. `IHttpClientFactory` manages `HttpMessageHandler` pooling (default lifetime: 2 min) and DNS rotation. Typed clients (`AddHttpClient<TInterface, TImplementation>`) additionally give compile-time safety — DI resolves `IMeasurementsClient` with its correctly configured `HttpClient` automatically.
+
+### Endpoint Design
+
+```
+GET /calculate/{userId}?from={unix}&to={unix} → { "totalKg": 123.45 }
+GET /health                                    → { "status": "healthy" }
+```
+
+The `/calculate` endpoint is deliberately thin — it logs the incoming request and delegates to `ICalculatorService`. All error handling is centralized in `ExceptionHandlingMiddleware`. This follows **Separation of Concerns**: the endpoint is a translator (HTTP → domain call → HTTP), not a decision maker.
+
+`/health` is a **liveness probe** — confirms the process is alive and can serve HTTP. No upstream checks (that would be a readiness probe, relevant in Kubernetes but not in our docker-compose setup).
+
+`public partial class Program` at the end — enables `WebApplicationFactory<Program>` in E2E tests to bootstrap the real app in-memory.
+
+### ExceptionHandlingMiddleware — Centralized Error Mapping
+
+**Pattern: Exception Handling Middleware** — a single pipeline stage that catches domain exceptions and maps them to HTTP responses. Alternative considered: per-endpoint try/catch. Rejected because it duplicates error-mapping logic across every endpoint and violates DRY.
+
+| Exception | HTTP Status | Log Level | Rationale |
+|-----------|-------------|-----------|-----------|
+| `InvalidCalculationRequestException` | 400 Bad Request | Warning | Client error — bad input, not our fault |
+| `UpstreamUnavailableException` | 502 Bad Gateway | Error | Our dependency failed — we're a gateway |
+| Any other `Exception` | 500 Internal Server Error | Error | Unexpected — generic message, no leak of internals |
+
+**Security decision:** unhandled exceptions return generic `"Internal server error"`, not the actual exception message. Leaking stack traces or internal details is an information disclosure vulnerability (CWE-209).
+
+Response format: `{ "error": "message" }` — consistent JSON for all error types.
+
+### Resilience Pipelines (Polly v8)
+
+Configured in `Program.cs` via `AddResilienceHandler` — part of `Microsoft.Extensions.Http.Resilience`. Infrastructure clients receive a plain `HttpClient` and are unaware of retry/timeout/circuit breaker policies.
+
+**Measurements API pipeline:**
+- **Retry:** 3 retries (4 total attempts), exponential backoff (1s → 2s → 4s), jitter enabled, triggers on transient HTTP errors (5xx, 408, network failures)
+- **Circuit Breaker:** failure ratio 0.5, sampling duration 30s, minimum throughput 5, break duration 30s
+- Why circuit breaker here: prevents cascading failures. If Measurements API is genuinely down (not just 30% chaos), circuit breaker stops us from sending requests that will certainly fail, giving the upstream time to recover.
+
+**Emissions API pipeline:**
+- **Outer timeout (30s):** safety net for the entire pipeline. If all attempts combined exceed 30s, abort.
+- **Retry:** 5 retries (6 total attempts), constant delay 200ms, jitter enabled
+- **Inner timeout (1s):** per-attempt timeout. Cancels individual requests that hit the 15s chaos delay.
+- **No circuit breaker:** conscious decision. Cache-Aside is the primary defense — after one successful fetch, all subsequent requests for the same range bypass HTTP entirely.
+
+**Why two timeout levels (onion model):**
+```
+Outer Timeout 30s ← total budget for all attempts
+  └→ Retry (5 retries)
+       └→ Inner Timeout 1s ← per-attempt budget
+            └→ HTTP request
+```
+Inner timeout cuts individual chaos delays quickly. Outer timeout caps total wall-clock time. Without inner: one attempt could consume the entire 30s budget. Without outer: 6 × 15s = 90s worst case.
