@@ -139,36 +139,31 @@ Use high-performance logging with `LoggerMessage.Define` or `[LoggerMessage]` so
 
 ---
 
-## Step 3. Application — interfaces + business logic
+## ✅ Step 3. Application — interfaces + business logic — DONE
 
-### 3.1 Port interfaces (in Application)
-- `IMeasurementsClient`: `Task<EnergyReading[]> GetReadingsAsync(string userId, long from, long to, CancellationToken ct)`
-- `IEmissionsClient`: `Task<EmissionFactor[]> GetFactorsAsync(long from, long to, CancellationToken ct)`
+### 3.1 Port interfaces (in Application) ✅
+- `IMeasurementsClient.cs` — `Task<EnergyReading[]> GetReadingsAsync(string userId, long from, long to, CancellationToken ct)`
+- `IEmissionsClient.cs` — `Task<EmissionFactor[]> GetFactorsAsync(long from, long to, CancellationToken ct)`
+- `ICalculatorService.cs` — `Task<CarbonFootprint> CalculateAsync(string userId, long from, long to, CancellationToken ct)`
 
 Returns domain models, not DTOs — Infrastructure maps DTOs → domain.
 
-### 3.2 CalculatorService
-- Interface: `ICalculatorService.CalculateAsync(string userId, long from, long to, CancellationToken ct) → CarbonFootprint`
-- Dependencies: `IMeasurementsClient`, `IEmissionsClient`, `ILogger<CalculatorService>`
-- Throws `InvalidCalculationRequestException` if `from >= to` or `from < 0`
+### 3.2 CalculatorService ✅
+- Primary constructor: `(IMeasurementsClient, IEmissionsClient, ILogger<CalculatorService>)`
+- Validation: throws `InvalidCalculationRequestException` if `from >= to`, `from < 0`, or not aligned to 15-min boundaries (`from % 900 != 0 || to % 900 != 0`)
+- Parallel fetch via `Task.WhenAll`, group by `PeriodDurationSeconds` periods, avg watts → kWh → CO₂
+- Named constants: `PeriodDurationSeconds = 900`, `PeriodsPerHour = 4.0`, `WattsPerKilowatt = 1000.0`
+- Logging: Information (request/result), Warning (missing factor), Debug (per-period)
 
-Algorithm:
-1. Log Information: incoming calculation request
-2. Parallel fetch via `Task.WhenAll(measurements, emissions)`
-3. Emissions → `Dictionary<long, double>` (timestamp → factor)
-4. Measurements → group by 15-min period: `timestamp / 900 * 900`
-5. For each group:
-   - `avg_watts = measurements.Average(m => m.Watts)` — skip empty groups
-   - `kWh = avg_watts / 4.0 / 1000.0`
-   - `co2 = kWh * emissionFactors[periodStart]` — use `TryGetValue`, log Warning + skip if factor missing
-   - Log Debug: per-period details
-6. Sum → `CarbonFootprint(total)`
-7. Log Information: calculation complete with elapsed time
+### 3.3 Additional dependency ✅
+- Added `Microsoft.Extensions.Logging.Abstractions` v8.0.2 to `Directory.Packages.props` + Application.csproj (classlib needs explicit reference for `ILogger<T>`)
 
-Edge cases:
-- Empty measurements for a period → skip (contributes 0)
-- Missing emission factor for a period → log Warning, skip
-- `from` not aligned to 900s → first period is partial, still works (just fewer readings)
+### 3.4 Unit tests ✅
+- `CalculatorServiceTests.cs` — 11 tests, all passing
+- Happy path, empty measurements, missing factor, invalid from/to, negative from, not aligned to 15-min boundaries (3 cases), parallel calls, multi-period grouping
+- All magic numbers extracted into named variables for readability
+
+**Result:** `dotnet test` → Passed: 11, Failed: 0
 
 ---
 
@@ -269,13 +264,14 @@ Project: `calculator-api/tests/TechChallenge.Calculator.UnitTests/` (xUnit + NSu
 
 Unit tests for **every public method** across all layers. Dependencies mocked via **NSubstitute** (chosen over Moq due to SponsorLink incident in NSubstitute 4.20.0 — telemetry without consent. NSubstitute has cleaner syntax and no trust issues).
 
-### 6.1 CalculatorService tests
-- `CalculateAsync_HappyPath_ReturnsCorrectCo2` — known measurements + factors → verify exact result
-- `CalculateAsync_EmptyMeasurements_ReturnsZero` — no readings → CarbonFootprint(0)
-- `CalculateAsync_MissingEmissionFactor_SkipsPeriod` — factor missing for one period → calculates rest
-- `CalculateAsync_InvalidFromTo_ThrowsInvalidCalculationRequestException` — from >= to
-- `CalculateAsync_CallsUpstreamsInParallel` — verify both clients called, not sequential
-- `CalculateAsync_MultiplePeriodsGroupedCorrectly` — readings split across 15-min boundaries
+### 6.1 CalculatorService tests ✅ (8 tests passing)
+- `CalculateAsync_HappyPath_ReturnsCorrectCo2` ✅
+- `CalculateAsync_EmptyMeasurements_ReturnsZero` ✅
+- `CalculateAsync_MissingEmissionFactor_SkipsPeriod` ✅
+- `CalculateAsync_InvalidFromTo_ThrowsInvalidCalculationRequestException` ✅ (Theory: from==to, from>to)
+- `CalculateAsync_NegativeFrom_ThrowsInvalidCalculationRequestException` ✅
+- `CalculateAsync_CallsUpstreamsInParallel` ✅
+- `CalculateAsync_MultiplePeriodsGroupedCorrectly` ✅
 
 ### 6.2 MeasurementsClient tests
 - `GetReadingsAsync_Success_ReturnsMappedDomainModels` — mock HttpMessageHandler returns DTOs → verify EnergyReading[]
@@ -342,10 +338,10 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 | `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/InvalidCalculationRequestException.cs` | ✅ Done |
 | **Application** | |
 | `calculator-api/src/TechChallenge.Calculator.Application/*.csproj` | ✅ Done |
-| `calculator-api/src/TechChallenge.Calculator.Application/IMeasurementsClient.cs` | **Create** |
-| `calculator-api/src/TechChallenge.Calculator.Application/IEmissionsClient.cs` | **Create** |
-| `calculator-api/src/TechChallenge.Calculator.Application/ICalculatorService.cs` | **Create** |
-| `calculator-api/src/TechChallenge.Calculator.Application/CalculatorService.cs` | **Create** |
+| `calculator-api/src/TechChallenge.Calculator.Application/IMeasurementsClient.cs` | ✅ Done |
+| `calculator-api/src/TechChallenge.Calculator.Application/IEmissionsClient.cs` | ✅ Done |
+| `calculator-api/src/TechChallenge.Calculator.Application/ICalculatorService.cs` | ✅ Done |
+| `calculator-api/src/TechChallenge.Calculator.Application/CalculatorService.cs` | ✅ Done |
 | **Infrastructure** | |
 | `calculator-api/src/TechChallenge.Calculator.Infrastructure/*.csproj` | ✅ Done |
 | `calculator-api/src/TechChallenge.Calculator.Infrastructure/Dto/MeasurementResponseDto.cs` | **Create** |
@@ -359,7 +355,7 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 | `calculator-api/src/TechChallenge.Calculator.Api/Middleware/ExceptionHandlingMiddleware.cs` | **Create** |
 | **Unit Tests** | |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/*.csproj` | ✅ Done |
-| `calculator-api/tests/TechChallenge.Calculator.UnitTests/CalculatorServiceTests.cs` | **Create** |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/CalculatorServiceTests.cs` | ✅ Done (8 tests) |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/MeasurementsClientTests.cs` | **Create** |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/EmissionsClientTests.cs` | **Create** |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/ExceptionHandlingMiddlewareTests.cs` | **Create** |
