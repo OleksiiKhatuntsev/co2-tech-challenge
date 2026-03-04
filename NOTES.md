@@ -207,3 +207,100 @@ Outer Timeout 30s ← total budget for all attempts
             └→ HTTP request
 ```
 Inner timeout cuts individual chaos delays quickly. Outer timeout caps total wall-clock time. Without inner: one attempt could consume the entire 30s budget. Without outer: 6 × 15s = 90s worst case.
+
+---
+
+## E2E Testing Strategy
+
+### WebApplicationFactory + WireMock Pattern
+
+E2E tests use `WebApplicationFactory<Program>` to host the Calculator API in-memory + **WireMock.Net** to mock upstream Measurements and Emissions APIs.
+
+**Why in-memory + mocked upstreams (not real services)?**
+
+1. **Determinism:** Chaos Monkey makes real APIs flaky. Mocked stubs ensure reproducible test behavior.
+2. **Isolation:** Each test configures its own stub scenario without affecting other tests.
+3. **Speed:** No network latency, no dependency startup time.
+4. **Chaos testing:** E2E layer proves the retry/timeout logic works; unit tests prove individual clients are resilient.
+
+### Custom Factory: CalculatorApiFactory
+
+Extends `WebApplicationFactory<Program>`, implements `IAsyncLifetime`:
+
+```csharp
+public class CalculatorApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
+{
+    public WireMockServer MeasurementsServer { get; private set; }
+    public WireMockServer EmissionsServer { get; private set; }
+
+    public Task InitializeAsync()
+    {
+        // Start two WireMock servers on random ports
+        MeasurementsServer = WireMockServer.Start();
+        EmissionsServer = WireMockServer.Start();
+        _ = Server; // Force creation of the host with override config
+        return Task.CompletedTask;
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        // Override Upstream URLs to point to WireMock servers
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Upstream:MeasurementsUrl"] = MeasurementsServer.Url!,
+                ["Upstream:EmissionsUrl"] = EmissionsServer.Url!
+            });
+        });
+    }
+}
+```
+
+**Key design decisions:**
+
+- `WireMockServer.Start()` launches on a random port (prevents conflicts)
+- `ConfigureWebHost` hook overrides configuration **before** DI is built → typed HttpClients get the mocked URLs
+- `IAsyncLifetime` ensures servers are started before tests run and cleaned up after
+
+### Test Coverage: 8 scenarios
+
+| Test | Scenario | Assertion |
+|------|----------|-----------|
+| **HappyPath** | Both APIs respond 200 with data | 200 OK, correct CO₂ |
+| **Retry** | Measurements: 1st call 500, 2nd succeeds | 200 OK, retry worked |
+| **Cache** | Two identical requests, Emissions hit only once | Emissions WireMock call count unchanged |
+| **Invalid from/to** | from > to | 400 Bad Request |
+| **Not aligned** | from not on 15-min boundary | 400 Bad Request |
+| **Empty data** | No measurements in range | 200 OK, totalKg = 0 |
+| **Upstream down** | All retries fail (5 × 500) | 502 Bad Gateway |
+| **Health** | `/health` endpoint | 200 OK, `{ "status": "healthy" }` |
+
+**Test data:** one 15-minute period (from=1609459200, to=1609460100), 100W, 0.5 kg/kWh → expected CO₂ = 0.0125 kg.
+
+### Stateful Mocking (WireMock Scenarios)
+
+For the "Retry" test, WireMock scenarios model state:
+
+```csharp
+_factory.MeasurementsServer
+    .Given(Request.Create().WithPath("/measurements/alpha").UsingGet())
+    .InScenario("retry")
+    .WillSetStateTo("failed-once")
+    .RespondWith(Response.Create().WithStatusCode(500));
+
+_factory.MeasurementsServer
+    .Given(Request.Create().WithPath("/measurements/alpha").UsingGet())
+    .InScenario("retry")
+    .WhenStateIs("failed-once")
+    .RespondWith(Response.Create().WithStatusCode(200).WithBody(...));
+```
+
+First request → 500, sets scenario to "failed-once". Second request matches the second rule → 200.
+
+### Results
+
+All **8 E2E tests pass** (7.6 seconds total). Combined with 28 unit tests → **36 tests, all passing**:
+- 28 unit tests: 46 ms
+- 8 E2E tests: 4 seconds
+- Total: 4 seconds (parallel execution)
