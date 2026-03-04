@@ -28,6 +28,15 @@ public class EmissionsClient(
 
     private bool TryGetAllFromCache(List<long> timestamps, long from, long to, out EmissionFactor[] factors)
     {
+        // Boundary check: if first or last block is missing, skip linear scan
+        if (timestamps.Count == 0
+            || !cache.TryGetValue(CacheKey(timestamps[0]), out EmissionFactor? _)
+            || !cache.TryGetValue(CacheKey(timestamps[^1]), out EmissionFactor? _))
+        {
+            factors = [];
+            return false;
+        }
+
         var result = new List<EmissionFactor>(timestamps.Count);
 
         foreach (var ts in timestamps)

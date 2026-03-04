@@ -40,6 +40,22 @@ On request: check if ALL needed 15-min timestamps are cached → all hit → ret
 
 Caching by `(from, to)` range key means a query for `[0, 3600)` and a query for `[900, 1800)` are two separate cache entries with no overlap. Point-level caching means any arbitrary range is assembled from already-cached individual points. Overlapping queries reuse cached points.
 
+**Why all-or-nothing fetch on cache miss (not partial fetch)?**
+
+On partial cache hit (some timestamps cached, some not), we re-fetch the full range from the API instead of fetching only the missing timestamps. Considered and rejected partial fetch for three reasons:
+
+1. **API contract is range-based.** `GET /emissions?from={from}&to={to}` returns a contiguous range. We cannot request arbitrary individual timestamps. Fetching only missing points would require identifying contiguous gaps, issuing one HTTP call per gap, and merging results — significant complexity.
+2. **Emissions data is global, not per-user.** After the first request for a time range, all blocks are cached. Subsequent requests from any user for the same range are full cache hits. Partial cache hits are a rare transitional state (only when two requests have partially overlapping but non-identical ranges).
+3. **Re-fetch cost is negligible.** Emission factors are small DTOs (~50 bytes each). Re-fetching 4 blocks instead of 2 costs ~200 extra bytes. The code complexity of gap detection + multi-request orchestration + result merging is a permanent maintenance burden for a near-zero runtime saving.
+
+**When partial fetch WOULD be justified:** upstream API supports individual-point or batch queries, data is per-user (low cache hit rate across users), or payload is large (megabytes per response). None of these apply here.
+
+**Boundary check before linear scan (early exit optimization)**
+
+`TryGetAllFromCache` checks the first and last timestamp in the range before iterating all intermediate blocks. If either boundary is missing from cache, we skip the linear scan entirely and go straight to API.
+
+*Motivation:* cache is populated atomically per API response (all blocks in a contiguous range). If a request for `[0, 172800)` (2 days = 192 blocks) partially overlaps with a previously cached `[0, 86400)` (1 day), the naive approach reads 96 cached blocks before discovering block 97 is missing. The boundary check detects this in 2 lookups instead of 96. Cost on full hit: 2 extra lookups (first and last are read twice — once in boundary check, once in linear scan). This is negligible compared to the savings on partial overlap.
+
 **Why NOT startup cache warming (`IHostedService`)?**
 
 Considered and rejected. Reasons:
