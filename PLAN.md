@@ -150,18 +150,20 @@ Returns domain models, not DTOs — Infrastructure maps DTOs → domain.
 
 ### 3.2 CalculatorService ✅
 - Primary constructor: `(IMeasurementsClient, IEmissionsClient, ILogger<CalculatorService>)`
-- Validation: throws `InvalidCalculationRequestException` if `from >= to` or `from < 0`
-- Parallel fetch via `Task.WhenAll`, group by 900s periods, avg watts → kWh → CO₂
+- Validation: throws `InvalidCalculationRequestException` if `from >= to`, `from < 0`, or not aligned to 15-min boundaries (`from % 900 != 0 || to % 900 != 0`)
+- Parallel fetch via `Task.WhenAll`, group by `PeriodDurationSeconds` periods, avg watts → kWh → CO₂
+- Named constants: `PeriodDurationSeconds = 900`, `PeriodsPerHour = 4.0`, `WattsPerKilowatt = 1000.0`
 - Logging: Information (request/result), Warning (missing factor), Debug (per-period)
 
 ### 3.3 Additional dependency ✅
 - Added `Microsoft.Extensions.Logging.Abstractions` v8.0.2 to `Directory.Packages.props` + Application.csproj (classlib needs explicit reference for `ILogger<T>`)
 
 ### 3.4 Unit tests ✅
-- `CalculatorServiceTests.cs` — 8 tests, all passing
-- Happy path, empty measurements, missing factor, invalid from/to, negative from, parallel calls, multi-period grouping
+- `CalculatorServiceTests.cs` — 11 tests, all passing
+- Happy path, empty measurements, missing factor, invalid from/to, negative from, not aligned to 15-min boundaries (3 cases), parallel calls, multi-period grouping
+- All magic numbers extracted into named variables for readability
 
-**Result:** `dotnet test` → Passed: 8, Failed: 0
+**Result:** `dotnet test` → Passed: 11, Failed: 0
 
 ---
 

@@ -11,12 +11,18 @@ public class CalculatorService(
     IEmissionsClient emissionsClient,
     ILogger<CalculatorService> logger) : ICalculatorService
 {
+    private const long PeriodDurationSeconds = 900; // 15 minutes
+    private const double PeriodsPerHour = 4.0; // 60 min / 15 min = 4 periods per hour
+    private const double WattsPerKilowatt = 1000.0;
+
     public async Task<CarbonFootprint> CalculateAsync(string userId, long from, long to, CancellationToken ct)
     {
         if (from >= to)
             throw new InvalidCalculationRequestException($"'from' ({from}) must be less than 'to' ({to})");
         if (from < 0)
             throw new InvalidCalculationRequestException($"'from' ({from}) must not be negative");
+        if (from % PeriodDurationSeconds != 0 || to % PeriodDurationSeconds != 0)
+            throw new InvalidCalculationRequestException("'from' and 'to' must be aligned to 15-minute boundaries");
 
         logger.LogInformation("Calculating CO₂ for user {UserId}, from={From}, to={To}", userId, from, to);
         var sw = Stopwatch.StartNew();
@@ -33,13 +39,13 @@ public class CalculatorService(
         var totalCo2 = 0.0;
         var periodCount = 0;
 
-        var groups = readings.GroupBy(r => r.Timestamp / 900 * 900);
+        var groups = readings.GroupBy(r => r.Timestamp / PeriodDurationSeconds * PeriodDurationSeconds);
 
         foreach (var group in groups)
         {
             var periodStart = group.Key;
             var avgWatts = group.Average(r => r.Watts);
-            var kWh = avgWatts / 4.0 / 1000.0;
+            var kWh = avgWatts / PeriodsPerHour / WattsPerKilowatt;
 
             if (!factorsByTimestamp.TryGetValue(periodStart, out var factor))
             {
