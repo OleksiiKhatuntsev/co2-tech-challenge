@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TechChallenge.Calculator.Domain\TechChallenge.Calculator.Domain.csproj" />
+  </ItemGroup>
+</Project>
