@@ -47,31 +47,45 @@ Interfaces in Application, implementations in Infrastructure — Dependency Inve
 
 ---
 
-## Step 1. Create projects and wire references
+## ✅ Step 1. Create projects and wire references — DONE
 
-### 1.1 Create class library projects
-- `calculator-api/src/TechChallenge.Calculator.Domain/TechChallenge.Calculator.Domain.csproj` — SDK: `Microsoft.NET.Sdk`, net8.0
-- `calculator-api/src/TechChallenge.Calculator.Application/TechChallenge.Calculator.Application.csproj` — SDK: `Microsoft.NET.Sdk`, net8.0, refs: Domain
-- `calculator-api/src/TechChallenge.Calculator.Infrastructure/TechChallenge.Calculator.Infrastructure.csproj` — SDK: `Microsoft.NET.Sdk`, net8.0, refs: Application, Domain; packages: `Microsoft.Extensions.Caching.Memory`
+### 1.1 Create class library projects ✅
+- `calculator-api/src/TechChallenge.Calculator.Domain/TechChallenge.Calculator.Domain.csproj` — created
+- `calculator-api/src/TechChallenge.Calculator.Application/TechChallenge.Calculator.Application.csproj` — created, refs: Domain
+- `calculator-api/src/TechChallenge.Calculator.Infrastructure/TechChallenge.Calculator.Infrastructure.csproj` — created, refs: Application, Domain; package: `Microsoft.Extensions.Caching.Memory`
 
-### 1.2 Update existing Calculator.Api.csproj
-- Add ProjectReference: Application, Infrastructure
-- Add PackageReference: `Microsoft.Extensions.Http.Resilience` (for Polly v8 pipeline config in Program.cs)
+### 1.2 Update existing Calculator.Api.csproj ✅
+- Added ProjectReference: Application, Infrastructure
+- Added PackageReference: `Microsoft.Extensions.Http.Resilience`
 
-### 1.3 Add packages to `Directory.Packages.props`
-- `Microsoft.Extensions.Http.Resilience` (Polly v8, replaces legacy `Microsoft.Extensions.Http.Polly`)
-- `Microsoft.Extensions.Caching.Memory`
+### 1.3 Add packages to `Directory.Packages.props` ✅
+Added all packages (both infra and test):
+- `Microsoft.Extensions.Http.Resilience` v8.10.0
+- `Microsoft.Extensions.Caching.Memory` v8.0.1
+- `NSubstitute` v5.3.0
+- `FluentAssertions` v7.0.0
+- `Microsoft.NET.Test.Sdk` v17.11.1
+- `xunit` v2.9.2
+- `xunit.runner.visualstudio` v2.8.2
+- `Microsoft.AspNetCore.Mvc.Testing` v8.0.11
+- `WireMock.Net` v1.6.7
 
-### 1.4 Add all 3 new projects to `TechChallenge.sln`
-- Under `calculator-api/src/` solution folder
+### 1.4 Add all projects to `TechChallenge.sln` ✅
+Added 5 projects: Domain, Application, Infrastructure, UnitTests, E2E
 
-### 1.5 Configure `appsettings.json`
+### 1.5 Configure `appsettings.json` ✅
 ```json
 "Upstream": {
   "MeasurementsUrl": "http://localhost:5153",
   "EmissionsUrl": "http://localhost:5139"
 }
 ```
+
+### 1.6 Create test project scaffolding ✅
+- `calculator-api/tests/TechChallenge.Calculator.UnitTests/` — refs: Domain, Application, Infrastructure
+- `calculator-api/tests/TechChallenge.Calculator.E2E/` — refs: Api; packages: WireMock.Net, Mvc.Testing
+
+**Result:** `dotnet build TechChallenge.sln` → Build succeeded (0 errors)
 
 ---
 
@@ -290,11 +304,6 @@ Unit tests for **every public method** across all layers. Dependencies mocked vi
 - `Invoke_UnhandledException_Returns500`
 - `Invoke_NoException_PassesThrough`
 
-### Add to `Directory.Packages.props`:
-- `NSubstitute`
-- `Microsoft.NET.Test.Sdk` — **not a library choice, but a mandatory infrastructure dependency**. This is the test host that `dotnet test` uses to discover and execute tests. Without it, xUnit tests compile but silently produce 0 results when run. Every .NET test project needs this regardless of framework (xUnit, NUnit, MSTest).
-- `FluentAssertions` (optional, for readable assertions)
-
 ---
 
 ## Step 7. E2E Tests
@@ -317,11 +326,6 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 7. **Upstream down** — all retries fail → 502 Bad Gateway
 8. **Exception handling** — verify error response format `{ "error": "..." }`
 
-### Add to `Directory.Packages.props`:
-- `Microsoft.AspNetCore.Mvc.Testing`
-- `WireMock.Net`
-- `xunit` + `xunit.runner.visualstudio`
-
 ---
 
 ## Step 8. Verification
@@ -337,39 +341,39 @@ Project: `calculator-api/tests/TechChallenge.Calculator.E2E/` (xUnit)
 
 | File | Action |
 |------|--------|
-| `Directory.Packages.props` | Add Resilience, Caching, NSubstitute, WireMock, xUnit packages |
-| `TechChallenge.sln` | Add 3 new projects + 2 test projects |
+| `Directory.Packages.props` | ✅ Done — 9 packages added |
+| `TechChallenge.sln` | ✅ Done — 5 projects added |
 | **Domain** | |
-| `calculator-api/src/TechChallenge.Calculator.Domain/*.csproj` | **Create** |
+| `calculator-api/src/TechChallenge.Calculator.Domain/*.csproj` | ✅ Done |
 | `calculator-api/src/TechChallenge.Calculator.Domain/Models.cs` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/CalculatorDomainException.cs` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/UpstreamUnavailableException.cs` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Domain/Exceptions/InvalidCalculationRequestException.cs` | **Create** |
 | **Application** | |
-| `calculator-api/src/TechChallenge.Calculator.Application/*.csproj` | **Create** |
+| `calculator-api/src/TechChallenge.Calculator.Application/*.csproj` | ✅ Done |
 | `calculator-api/src/TechChallenge.Calculator.Application/IMeasurementsClient.cs` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Application/IEmissionsClient.cs` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Application/ICalculatorService.cs` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Application/CalculatorService.cs` | **Create** |
 | **Infrastructure** | |
-| `calculator-api/src/TechChallenge.Calculator.Infrastructure/*.csproj` | **Create** |
+| `calculator-api/src/TechChallenge.Calculator.Infrastructure/*.csproj` | ✅ Done |
 | `calculator-api/src/TechChallenge.Calculator.Infrastructure/Dto/MeasurementResponseDto.cs` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Infrastructure/Dto/EmissionResponseDto.cs` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Infrastructure/MeasurementsClient.cs` | **Create** |
 | `calculator-api/src/TechChallenge.Calculator.Infrastructure/EmissionsClient.cs` | **Create** |
 | **Api** | |
-| `calculator-api/src/TechChallenge.Calculator.Api/*.csproj` | Update — add project refs |
-| `calculator-api/src/TechChallenge.Calculator.Api/appsettings.json` | Update — add Upstream |
+| `calculator-api/src/TechChallenge.Calculator.Api/*.csproj` | ✅ Done — project refs + Resilience package added |
+| `calculator-api/src/TechChallenge.Calculator.Api/appsettings.json` | ✅ Done — Upstream section added |
 | `calculator-api/src/TechChallenge.Calculator.Api/Program.cs` | Update — DI, resilience, endpoint, middleware |
 | `calculator-api/src/TechChallenge.Calculator.Api/Middleware/ExceptionHandlingMiddleware.cs` | **Create** |
 | **Unit Tests** | |
-| `calculator-api/tests/TechChallenge.Calculator.UnitTests/*.csproj` | **Create** — refs: Application, Infrastructure, Domain |
+| `calculator-api/tests/TechChallenge.Calculator.UnitTests/*.csproj` | ✅ Done |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/CalculatorServiceTests.cs` | **Create** |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/MeasurementsClientTests.cs` | **Create** |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/EmissionsClientTests.cs` | **Create** |
 | `calculator-api/tests/TechChallenge.Calculator.UnitTests/ExceptionHandlingMiddlewareTests.cs` | **Create** |
 | **E2E Tests** | |
-| `calculator-api/tests/TechChallenge.Calculator.E2E/*.csproj` | **Create** |
+| `calculator-api/tests/TechChallenge.Calculator.E2E/*.csproj` | ✅ Done |
 | `calculator-api/tests/TechChallenge.Calculator.E2E/CalculatorE2ETests.cs` | **Create** |
 | **Docs** | |
-| `Notes.md` (repo root) | **Create** — architectural decisions log (NSubstitute choice rationale, etc.) |
+| `Notes.md` (repo root) | **Create** — architectural decisions log |
