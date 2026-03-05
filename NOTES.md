@@ -30,7 +30,11 @@ The `IMemoryCache` for emissions data is owned by `EmissionsClient` (Infrastruct
 
 ### Emissions API — Cache-Aside (Lazy), No Warm-up
 
-Emissions data is cached **per individual 15-min timestamp** using `IMemoryCache`. Key format: `emission:{timestamp}`, TTL: 24 hours.
+Emissions data is cached **per individual 15-min timestamp** using `IMemoryCache`. Key format: `emission:{timestamp}`, TTL: 365 days (1 year).
+
+**Why TTL = 1 year instead of 24 hours?**
+
+Emission factors are historical data — they describe 15-minute intervals that have already passed and never change retroactively. Clients may request CO₂ calculations for arbitrary time ranges, including weeks and months in the past. With a 24-hour TTL, cached data from distant periods would be evicted, and a repeated query for the same old range would trigger a new Emissions API call (with its 50% chaos delay). A 1-year TTL ensures that once fetched, factors remain cached long enough for any realistic usage scenario. In practice, `IMemoryCache` is bounded by the process lifetime — when the server restarts, the cache is cleared anyway, so a long TTL poses no staleness risk.
 
 **Pattern: Cache-Aside (lazy loading)**
 

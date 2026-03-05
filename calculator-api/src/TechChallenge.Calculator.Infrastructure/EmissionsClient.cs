@@ -14,7 +14,7 @@ public class EmissionsClient(
     ILogger<EmissionsClient> logger) : IEmissionsClient
 {
     private const long PeriodSeconds = 900;
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromDays(365);
 
     public async Task<EmissionFactor[]> GetFactorsAsync(long from, long to, CancellationToken cancellationToken)
     {
